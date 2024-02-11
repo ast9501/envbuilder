@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -41,7 +42,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
+
+	//"github.com/go-git/go-git/plumbing/transport/ssh"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/sirupsen/logrus"
@@ -194,6 +199,16 @@ type Options struct {
 	// This is optional!
 	GitPassword string `env:"GIT_PASSWORD"`
 
+	// TODO: migrate to classify git credential type from git url
+	// GitSsh will use private key to access Git.
+	GitSsh bool `env:"GIT_SSH"`
+
+	// GitSshKey is the private key to use for Git authentication.
+	// This is optional! (default to $HOME/.ssh/id_rsa)
+	GitSshkey string `env:"GIT_SSHKEY"`
+
+	RepoAuth transport.AuthMethod
+
 	// WorkspaceFolder is the path to the workspace folder
 	// that will be built. This is optional!
 	WorkspaceFolder string `env:"WORKSPACE_FOLDER"`
@@ -253,7 +268,7 @@ func Run(ctx context.Context, options Options) error {
 	}
 	if options.WorkspaceFolder == "" {
 		var err error
-		options.WorkspaceFolder, err = DefaultWorkspaceFolder(options.GitURL)
+		options.WorkspaceFolder, err = DefaultWorkspaceFolder("projects")
 		if err != nil {
 			return err
 		}
@@ -338,25 +353,39 @@ func Run(ctx context.Context, options Options) error {
 			}
 		}()
 
-		if options.GitUsername != "" || options.GitPassword != "" {
+		//TODO: adjust use ssh key or BasicAuth
+
+		//FIXME: if options.GitURL start with git@...
+		if options.GitSsh {
+			if options.GitSshkey != "" {
+				//FIXME: read default path
+				privateKey, err := LoadPrivateKey(options.GitSshkey)
+				if err != nil {
+					logf(codersdk.LogLevelError, "Failed to load private ssh key for Git: %s", err)
+				} else {
+					options.RepoAuth = privateKey
+				}
+			}
+		} else if options.GitUsername != "" || options.GitPassword != "" {
 			gitURL, err := url.Parse(options.GitURL)
 			if err != nil {
 				return fmt.Errorf("parse git url: %w", err)
 			}
 			gitURL.User = url.UserPassword(options.GitUsername, options.GitPassword)
 			options.GitURL = gitURL.String()
+			options.RepoAuth = &githttp.BasicAuth{
+				Username: options.GitUsername,
+				Password: options.GitPassword,
+			}
 		}
 
 		cloned, fallbackErr = CloneRepo(ctx, CloneRepoOptions{
-			Path:     options.WorkspaceFolder,
-			Storage:  options.Filesystem,
-			RepoURL:  options.GitURL,
-			Insecure: options.Insecure,
-			Progress: writer,
-			RepoAuth: &githttp.BasicAuth{
-				Username: options.GitUsername,
-				Password: options.GitPassword,
-			},
+			Path:         options.WorkspaceFolder,
+			Storage:      options.Filesystem,
+			RepoURL:      options.GitURL,
+			Insecure:     options.Insecure,
+			Progress:     writer,
+			RepoAuth:     options.RepoAuth,
 			SingleBranch: options.GitCloneSingleBranch,
 			Depth:        options.GitCloneDepth,
 			CABundle:     caBundle,
@@ -1163,4 +1192,34 @@ type osfsWithChmod struct {
 
 func (fs *osfsWithChmod) Chmod(name string, mode os.FileMode) error {
 	return os.Chmod(name, mode)
+}
+
+func LoadPrivateKey(path string) (*ssh.PublicKeys, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Get file size and read into byte slice
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	key := make([]byte, stat.Size())
+	_, err = bufio.NewReader(file).Read(key)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	// Username must be "git" for SSH auth to work, not your real username.
+	// See https://github.com/src-d/go-git/issues/637
+
+	// TODO: replate 'git' to other user for clone gerrit project
+	publicKey, err := ssh.NewPublicKeys("git", []byte(key), "")
+	if err != nil {
+		log.Fatalf("creating ssh auth method")
+	}
+
+	return publicKey, nil
 }

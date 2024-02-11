@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-git/v5"
@@ -33,21 +32,36 @@ type CloneRepoOptions struct {
 // be cloned again.
 //
 // The bool returned states whether the repository was cloned or not.
+// TODO: for ssh-key, remenber to ssh-keyscan first
 func CloneRepo(ctx context.Context, opts CloneRepoOptions) (bool, error) {
-	parsed, err := url.Parse(opts.RepoURL)
-	if err != nil {
-		return false, fmt.Errorf("parse url %q: %w", opts.RepoURL, err)
-	}
-	err = opts.Storage.MkdirAll(opts.Path, 0755)
+	//var parsed *url.URL
+	var reference string
+
+	/*
+		FIXME: parse https:// git
+		if _, isSshKey := opts.RepoAuth.(*ssh.PublicKeys); !isSshKey {
+			var err error
+			parsed, err = url.Parse(opts.RepoURL)
+			if err != nil {
+				return false, fmt.Errorf("parse url %q: %w", opts.RepoURL, err)
+			}
+		}
+	*/
+	err := opts.Storage.MkdirAll(opts.Path, 0755)
 	if err != nil {
 		return false, fmt.Errorf("mkdir %q: %w", opts.Path, err)
 	}
-	reference := parsed.Fragment
+	/*
+		reference := parsed.Fragment
+		if reference == "" && opts.SingleBranch {
+			reference = "refs/heads/main"
+		}
+		parsed.RawFragment = ""
+		parsed.Fragment = ""
+	*/
 	if reference == "" && opts.SingleBranch {
 		reference = "refs/heads/main"
 	}
-	parsed.RawFragment = ""
-	parsed.Fragment = ""
 	fs, err := opts.Storage.Chroot(opts.Path)
 	if err != nil {
 		return false, fmt.Errorf("chroot %q: %w", opts.Path, err)
@@ -69,8 +83,9 @@ func CloneRepo(ctx context.Context, opts CloneRepoOptions) (bool, error) {
 		return false, nil
 	}
 
+	//TODO: modify git.CloneOptions for different situitation (ssh, basic auth)
 	_, err = git.CloneContext(ctx, gitStorage, fs, &git.CloneOptions{
-		URL:             parsed.String(),
+		URL:             opts.RepoURL, //parsed.String(),
 		Auth:            opts.RepoAuth,
 		Progress:        opts.Progress,
 		ReferenceName:   plumbing.ReferenceName(reference),

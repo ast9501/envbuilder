@@ -1,5 +1,9 @@
-FROM scratch
+FROM harbor.alanshomelab.com/dockerhub/alpine:3.19
 ARG TARGETARCH
+
+RUN apk update && apk add openssh
+COPY .ssh /root/.ssh
+RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
 
 COPY envbuilder-${TARGETARCH} /.envbuilder/bin/envbuilder
 
