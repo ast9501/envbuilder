@@ -19,6 +19,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -268,7 +269,7 @@ func Run(ctx context.Context, options Options) error {
 	}
 	if options.WorkspaceFolder == "" {
 		var err error
-		options.WorkspaceFolder, err = DefaultWorkspaceFolder("projects")
+		options.WorkspaceFolder = DefaultWorkspaceFolder(options.GitURL)
 		if err != nil {
 			return err
 		}
@@ -360,6 +361,14 @@ func Run(ctx context.Context, options Options) error {
 			if options.GitSshkey != "" {
 				//FIXME: read default path
 				privateKey, err := LoadPrivateKey(options.GitSshkey)
+				if err != nil {
+					logf(codersdk.LogLevelError, "Failed to load private ssh key for Git: %s", err)
+				} else {
+					options.RepoAuth = privateKey
+				}
+			} else {
+				logf(codersdk.LogLevelInfo, "GIT_SSH set to True, load default ssh key from path: %s", "/root/.ssh/id_ed25519")
+				privateKey, err := LoadPrivateKey("/root/.ssh/id_ed25519")
 				if err != nil {
 					logf(codersdk.LogLevelError, "Failed to load private ssh key for Git: %s", err)
 				} else {
@@ -993,16 +1002,19 @@ func Run(ctx context.Context, options Options) error {
 
 // DefaultWorkspaceFolder returns the default workspace folder
 // for a given repository URL.
-func DefaultWorkspaceFolder(repoURL string) (string, error) {
+func DefaultWorkspaceFolder(repoURL string) string {
 	if repoURL == "" {
-		return "/workspaces/empty", nil
+		return "/workspaces/empty"
 	}
-	parsed, err := url.Parse(repoURL)
-	if err != nil {
-		return "", err
-	}
-	name := strings.Split(parsed.Path, "/")
-	return fmt.Sprintf("/workspaces/%s", name[len(name)-1]), nil
+
+	reg := regexp.MustCompile(`.*/`)
+	parsed := reg.ReplaceAllString(repoURL, "")
+	//parsed, err := url.Parse(repoURL)
+	//if err != nil {
+	//	return "", err
+	//}
+	name := strings.Split(parsed, "/")
+	return fmt.Sprintf("/workspaces/%s", name[len(name)-1])
 }
 
 type userInfo struct {
