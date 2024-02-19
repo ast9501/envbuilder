@@ -359,8 +359,7 @@ func Run(ctx context.Context, options Options) error {
 		//FIXME: if options.GitURL start with git@...
 		if options.GitSsh {
 			if options.GitSshkey != "" {
-				//FIXME: read default path
-				privateKey, err := LoadPrivateKey(options.GitSshkey)
+				privateKey, err := LoadPrivateKey(options.GitUsername, options.GitSshkey)
 				if err != nil {
 					logf(codersdk.LogLevelError, "Failed to load private ssh key for Git: %s", err)
 				} else {
@@ -368,7 +367,7 @@ func Run(ctx context.Context, options Options) error {
 				}
 			} else {
 				logf(codersdk.LogLevelInfo, "GIT_SSH set to True, load default ssh key from path: %s", "/root/.ssh/id_ed25519")
-				privateKey, err := LoadPrivateKey("/root/.ssh/id_ed25519")
+				privateKey, err := LoadPrivateKey(options.GitUsername, "/root/.ssh/id_ed25519")
 				if err != nil {
 					logf(codersdk.LogLevelError, "Failed to load private ssh key for Git: %s", err)
 				} else {
@@ -386,6 +385,8 @@ func Run(ctx context.Context, options Options) error {
 				Username: options.GitUsername,
 				Password: options.GitPassword,
 			}
+		} else {
+			logf(codersdk.LogLevelInfo, "Treat as public repository")
 		}
 
 		cloned, fallbackErr = CloneRepo(ctx, CloneRepoOptions{
@@ -1203,7 +1204,7 @@ func (fs *osfsWithChmod) Chmod(name string, mode os.FileMode) error {
 	return os.Chmod(name, mode)
 }
 
-func LoadPrivateKey(path string) (*ssh.PublicKeys, error) {
+func LoadPrivateKey(username, path string) (*ssh.PublicKeys, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -1225,9 +1226,16 @@ func LoadPrivateKey(path string) (*ssh.PublicKeys, error) {
 	// See https://github.com/src-d/go-git/issues/637
 
 	// TODO: replate 'git' to other user for clone gerrit project
-	publicKey, err := ssh.NewPublicKeys("git", []byte(key), "")
+	var publicKey *ssh.PublicKeys
+	if username != "" {
+		publicKey, err = ssh.NewPublicKeys(username, []byte(key), "")
+	} else {
+		publicKey, err = ssh.NewPublicKeys("git", []byte(key), "")
+	}
+
 	if err != nil {
-		log.Fatalf("creating ssh auth method")
+		log.Fatalf("Failed to create ssh auth publickey: ", err)
+		return nil, err
 	}
 
 	return publicKey, nil
