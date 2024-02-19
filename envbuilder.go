@@ -269,7 +269,7 @@ func Run(ctx context.Context, options Options) error {
 	}
 	if options.WorkspaceFolder == "" {
 		var err error
-		options.WorkspaceFolder = DefaultWorkspaceFolder(options.GitURL)
+		options.WorkspaceFolder, err = DefaultWorkspaceFolder(options.GitURL)
 		if err != nil {
 			return err
 		}
@@ -1002,19 +1002,16 @@ func Run(ctx context.Context, options Options) error {
 
 // DefaultWorkspaceFolder returns the default workspace folder
 // for a given repository URL.
-func DefaultWorkspaceFolder(repoURL string) string {
+func DefaultWorkspaceFolder(repoURL string) (string, error) {
 	if repoURL == "" {
-		return "/workspaces/empty"
+		return "/workspaces/empty", nil
 	}
 
 	reg := regexp.MustCompile(`.*/`)
 	parsed := reg.ReplaceAllString(repoURL, "")
-	//parsed, err := url.Parse(repoURL)
-	//if err != nil {
-	//	return "", err
-	//}
+
 	name := strings.Split(parsed, "/")
-	return fmt.Sprintf("/workspaces/%s", name[len(name)-1])
+	return fmt.Sprintf("/workspaces/%s", name[len(name)-1]), nil
 }
 
 type userInfo struct {
